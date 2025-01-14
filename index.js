@@ -42,10 +42,29 @@ const findAndRetrieveUser = (id, done) => {
   })
 }
 
+const getAllUsers = (done) => {
+  User.find((err, data) => {
+    if (err) return console.error(err)
+    return done(null, data)
+  })
+}
+
 const saveExercise = (input, done) => {
   console.log(input)
-  const newExercise = new Exercise({"uid": input._id, "desc": input.description, "dur": input.duration, "date": input.date})
+  const newExercise = new Exercise({
+    "uid": input._id,
+    "desc": input.description,
+    "dur": input.duration,
+    "date": input.date
+  })
   newExercise.save((err, data) => {
+    if (err) return console.error(err)
+    return done(null, data)
+  })
+}
+
+const retrieveUserExercises = (id, done) => {
+  Exercise.find({uid:id}, (err, data) => {
     if (err) return console.error(err)
     return done(null, data)
   })
@@ -56,7 +75,8 @@ app.get('/', (req, res) => {
 });
 
 
-app.post('/api/users', (req, res) => {
+app.route('/api/users')
+.post((req, res) => {
   const {username} = req.body
   saveUsername(username, (err, data) => {
     if(err) return res.json({error: err})
@@ -66,13 +86,26 @@ app.post('/api/users', (req, res) => {
     })
   })
 })
+.get((req, res) => {
+  getAllUsers((err, data) => {
+    return res.json(data)
+  })
+})
 
 app.post('/api/users/:_id/exercises', (req, res) => {
   const {description, duration, date} = req.body
   const {_id} = req.params;
-  const dateString = new Date(date).toDateString()
+  const dateString = date? new Date(date).toDateString() : new Date().toDateString()
   findAndRetrieveUser(_id, (err, userData) => {
-    saveExercise({_id, description, duration, "date":dateString}, (err, exData) => {
+
+    const newExercise = {
+      _id,
+      description,
+      duration,
+      date: dateString
+    };
+
+    saveExercise(newExercise, (err, exData) => {
       if(err) return res.json({error: err})
       return res.json({
         username: userData.username,
@@ -85,18 +118,47 @@ app.post('/api/users/:_id/exercises', (req, res) => {
   })
 })
 
-app.get('', (req, res) => {
-  return res.json({
-    username: "fcc_test",
-    count: 1,
-    _id: "5fb5853f734231456ccb3b05",
-    log: [{
-      description: "test",
-      duration: 60,
-      date: "Mon Jan 01 1990",
-    }]
-  })
-})
+app.get('/api/users/:_id/logs', (req, res) => {
+  const { _id } = req.params;
+  const { from, to, limit } = req.query;
+
+  findAndRetrieveUser(_id, (err, userData) => {
+    if (err) return res.json({ error: err });
+
+    retrieveUserExercises(userData._id, (err, exerciseData) => {
+      if (err) return res.json({ error: err });
+
+      let filteredExercises = exerciseData;
+      if (from) {
+        const fromDate = new Date(from);
+        filteredExercises = filteredExercises.filter(ex => new Date(ex.date) >= fromDate);
+      }
+      if (to) {
+        const toDate = new Date(to);
+        filteredExercises = filteredExercises.filter(ex => new Date(ex.date) <= toDate);
+      }
+
+      // Limit the number of exercises if 'limit' is provided
+      if (limit) {
+        filteredExercises = filteredExercises.slice(0, parseInt(limit));
+      }
+
+      // Format the log entries
+      let log = filteredExercises.map(value => ({
+        description: value.desc,
+        duration: value.dur,
+        date: new Date(value.date).toDateString() // Ensure date is properly formatted
+      }));
+
+      return res.json({
+        username: userData.username,
+        count: log.length,
+        _id: _id,
+        log: log
+      });
+    });
+  });
+});
 
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log('Your app is listening on port ' + listener.address().port)
